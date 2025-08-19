@@ -1,0 +1,299 @@
+import { useState, useEffect, useRef } from 'react';
+import { Scatter } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title } from 'chart.js';
+
+// Register Chart.js components
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    Tooltip,
+    Legend,
+    Title
+);
+
+// Synthetic dataset for demonstration purposes
+// Each data point represents a cell with two features: 'Radius' and 'Texture'
+// 'label' is 0 for Benign and 1 for Malignant
+const cancerData = [
+    { radius: 10, texture: 12, label: 0 },
+    { radius: 11, texture: 14, label: 0 },
+    { radius: 12, texture: 11, label: 0 },
+    { radius: 13, texture: 15, label: 0 },
+    { radius: 10.5, texture: 13, label: 0 },
+    { radius: 11.5, texture: 12.5, label: 0 },
+    { radius: 12.5, texture: 14, label: 0 },
+    { radius: 13.5, texture: 16, label: 0 },
+    { radius: 14, texture: 15, label: 0 },
+    { radius: 15, texture: 17, label: 0 },
+    
+    { radius: 16, texture: 21, label: 1 },
+    { radius: 17, texture: 20, label: 1 },
+    { radius: 18, texture: 22, label: 1 },
+    { radius: 19, texture: 24, label: 1 },
+    { radius: 16.5, texture: 23, label: 1 },
+    { radius: 17.5, texture: 21.5, label: 1 },
+    { radius: 18.5, texture: 20.5, label: 1 },
+    { radius: 19.5, texture: 25, label: 1 },
+    { radius: 20, texture: 22, label: 1 },
+    { radius: 21, texture: 23, label: 1 },
+];
+
+const App = () => {
+    const [newRadius, setNewRadius] = useState(15);
+    const [newTexture, setNewTexture] = useState(18);
+    const [k, setK] = useState(3);
+    const [prediction, setPrediction] = useState(null);
+    const [neighbors, setNeighbors] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [showModal, setShowModal] = useState(false);
+
+    const chartRef = useRef(null);
+
+    // This effect ensures the chart resizes correctly
+    useEffect(() => {
+        const resizeChart = () => {
+            if (chartRef.current) {
+                chartRef.current.resize();
+            }
+        };
+        window.addEventListener('resize', resizeChart);
+        return () => window.removeEventListener('resize', resizeChart);
+    }, []);
+
+    // Function to calculate Euclidean distance between two points
+    const euclideanDistance = (point1, point2) => {
+        return Math.sqrt(Math.pow(point1.radius - point2.radius, 2) + Math.pow(point1.texture - point2.texture, 2));
+    };
+
+    // The core K-Nearest Neighbors (KNN) classification function
+    const classify = () => {
+        setLoading(true);
+        setPrediction(null);
+        setNeighbors([]);
+
+        // Create the new, unclassified data point
+        const newPoint = { radius: parseFloat(newRadius), texture: parseFloat(newTexture) };
+
+        // 1. Calculate the distance from the new point to all existing points
+        const distances = cancerData.map(point => ({
+            ...point,
+            distance: euclideanDistance(newPoint, point)
+        }));
+
+        // 2. Sort the distances in ascending order
+        distances.sort((a, b) => a.distance - b.distance);
+
+        // 3. Get the K-nearest neighbors
+        const kNearest = distances.slice(0, k);
+
+        // 4. Determine the majority class among the neighbors
+        const benignVotes = kNearest.filter(p => p.label === 0).length;
+        const malignantVotes = kNearest.filter(p => p.label === 1).length;
+
+        // 5. Make the final prediction based on the majority vote
+        const finalPrediction = malignantVotes > benignVotes ? 1 : 0;
+        const resultText = finalPrediction === 1 ? 'Malignant' : 'Benign';
+
+        // Set the state with the results
+        setPrediction(resultText);
+        setNeighbors(kNearest);
+        setLoading(false);
+        setShowModal(true);
+    };
+
+    const handleKeyDown = (event) => {
+        if (event.key === 'Enter') {
+            classify();
+        }
+    };
+
+    // Prepare chart data for visualization
+    const chartData = {
+        labels: ['Benign', 'Malignant', 'New Cell'],
+        datasets: [
+            {
+                label: 'Benign (0)',
+                data: cancerData.filter(d => d.label === 0).map(d => ({ x: d.radius, y: d.texture })),
+                backgroundColor: '#10b981', // green-500
+                borderColor: '#059669',
+                pointRadius: 6,
+            },
+            {
+                label: 'Malignant (1)',
+                data: cancerData.filter(d => d.label === 1).map(d => ({ x: d.radius, y: d.texture })),
+                backgroundColor: '#ef4444', // red-500
+                borderColor: '#dc2626',
+                pointRadius: 6,
+            },
+            {
+                label: 'New Cell',
+                data: [{ x: parseFloat(newRadius), y: parseFloat(newTexture) }],
+                backgroundColor: '#3b82f6', // blue-500
+                borderColor: '#2563eb',
+                pointRadius: 10,
+                pointStyle: 'star',
+            },
+            // Highlight the K-nearest neighbors
+            {
+                label: 'K-Nearest Neighbors',
+                data: neighbors.map(d => ({ x: d.radius, y: d.texture })),
+                backgroundColor: 'rgba(251, 191, 36, 0.5)', // amber-400 with transparency
+                borderColor: '#fbbf24',
+                pointRadius: 8,
+                pointBorderColor: '#fbbf24',
+                pointBorderWidth: 2,
+            },
+        ],
+    };
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: {
+                    font: {
+                        family: 'Inter',
+                    }
+                }
+            },
+            title: {
+                display: true,
+                text: 'Cancer Cell Classification Scatter Plot',
+                font: {
+                    size: 18,
+                    family: 'Inter',
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.dataset.label || '';
+                        if (label === 'New Cell') {
+                            return `New Cell: (${context.parsed.x}, ${context.parsed.y})`;
+                        }
+                        return `${label}: (${context.parsed.x}, ${context.parsed.y})`;
+                    }
+                },
+                titleFont: { family: 'Inter' },
+                bodyFont: { family: 'Inter' },
+            },
+        },
+        scales: {
+            x: {
+                title: {
+                    display: true,
+                    text: 'Radius',
+                    font: { family: 'Inter' }
+                },
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Texture',
+                    font: { family: 'Inter' }
+                },
+            },
+        },
+    };
+
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4 font-inter">
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-4xl w-full">
+                <h1 className="text-3xl font-bold text-gray-800 text-center mb-4">Cancer Cell Classification</h1>
+                <p className="text-gray-600 text-center mb-8">
+                    This interactive demo uses a K-Nearest Neighbors (KNN) algorithm to classify a new cell as Benign or Malignant based on its features (Radius and Texture).
+                </p>
+
+                {/* Controls and Input Form */}
+                <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
+                    <div className="flex-1 w-full">
+                        <label htmlFor="radius" className="block text-sm font-medium text-gray-700">Radius</label>
+                        <input
+                            type="number"
+                            id="radius"
+                            value={newRadius}
+                            onChange={(e) => setNewRadius(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="mt-1 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            min="0"
+                            step="0.1"
+                        />
+                    </div>
+                    <div className="flex-1 w-full">
+                        <label htmlFor="texture" className="block text-sm font-medium text-gray-700">Texture</label>
+                        <input
+                            type="number"
+                            id="texture"
+                            value={newTexture}
+                            onChange={(e) => setNewTexture(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="mt-1 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            min="0"
+                            step="0.1"
+                        />
+                    </div>
+                    <div className="flex-1 w-full">
+                        <label htmlFor="k-value" className="block text-sm font-medium text-gray-700">K Value</label>
+                        <input
+                            type="number"
+                            id="k-value"
+                            value={k}
+                            onChange={(e) => setK(parseInt(e.target.value))}
+                            onKeyDown={handleKeyDown}
+                            className="mt-1 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            min="1"
+                            step="2"
+                        />
+                    </div>
+                    <button
+                        onClick={classify}
+                        disabled={loading}
+                        className={`w-full sm:w-auto mt-6 px-6 py-3 rounded-lg text-white font-semibold transition-all duration-300 ${loading ? 'bg-indigo-400 cursor-not-allowed animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95 shadow-md hover:shadow-lg'}`}
+                    >
+                        {loading ? (
+                            <div className="flex items-center justify-center">
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Classifying...
+                            </div>
+                        ) : 'Classify'}
+                    </button>
+                </div>
+
+                {/* Chart Area */}
+                <div className="bg-gray-50 rounded-lg p-6 min-h-[400px] flex items-center justify-center shadow-inner mb-4">
+                    <div className="w-full h-[500px]">
+                        <Scatter data={chartData} options={chartOptions} ref={chartRef} />
+                    </div>
+                </div>
+            </div>
+
+            {/* Prediction Modal */}
+            {showModal && (
+                <div className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center transform transition-all duration-300 scale-100">
+                        <h3 className="text-2xl font-bold text-gray-900 mb-4">Classification Result</h3>
+                        <p className="text-lg text-gray-700 mb-4">The new cell is predicted to be:</p>
+                        <p className={`text-4xl font-bold mb-4 ${prediction === 'Benign' ? 'text-green-600' : 'text-red-600'}`}>{prediction}</p>
+                        <p className="text-sm text-gray-500">
+                            (Based on {k} nearest neighbors)
+                        </p>
+                        <button
+                            onClick={() => setShowModal(false)}
+                            className="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors duration-200"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default App;
